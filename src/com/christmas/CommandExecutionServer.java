@@ -44,7 +44,6 @@ public class CommandExecutionServer implements AutoCloseable {
             if (readyChannels <= 0) {
                 continue;
             }
-
             Set<SelectionKey> selectedKeys = selector.selectedKeys();
             Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
             while (keyIterator.hasNext()) {
@@ -70,26 +69,31 @@ public class CommandExecutionServer implements AutoCloseable {
         SocketChannel schannel = channel.accept();
         schannel.configureBlocking(false);
         schannel.register(selector, SelectionKey.OP_READ);
-
     }
 
-    /**
-     * Read data from a connection
-     *
-     * @param key The key for which data was received
-     */
-    private void read(SelectionKey key) throws IOException {
+    private void read(SelectionKey key) {
         SocketChannel sc = (SocketChannel) key.channel();
-        commandBuffer.clear();
-        int r = sc.read(commandBuffer);
-        if (r <= 0) {
-            return;
+        try {
+            commandBuffer.clear();
+            int r = sc.read(commandBuffer);
+            if (r == -1) {
+                return;
+                //throw new RuntimeException("Channel is broken");
+            }
+            commandBuffer.flip();
+            String message = Charset.forName("UTF-8").decode(commandBuffer).toString();
+            String result = executeCommand(message);
+            System.out.println("message:" + message);
+            System.out.println("result:" + result);
+            commandBuffer.clear();
+            commandBuffer.put((result + System.lineSeparator()).getBytes());
+            commandBuffer.flip();
+            sc.write(commandBuffer);
+        } catch (IOException e) {
+            this.stop();
+            e.getMessage();
+            e.printStackTrace();
         }
-        String command = Charset.forName("UTF-8").decode(commandBuffer).toString();
-        commandBuffer.flip();
-        commandBuffer.clear();
-        commandBuffer.put(executeCommand(command).getBytes());
-        sc.write(commandBuffer);
     }
 
     /**
