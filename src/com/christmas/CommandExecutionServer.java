@@ -9,6 +9,9 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
+import java.util.Iterator;
+import java.util.Set;
 
 public class CommandExecutionServer implements AutoCloseable {
 
@@ -34,7 +37,26 @@ public class CommandExecutionServer implements AutoCloseable {
      * @throws IOException
      */
     public void start() throws IOException {
+        serverSocketChannel.configureBlocking(false);
+        serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+        while (runServer) {
+            int readyChannels = selector.select();
+            if (readyChannels <= 0) {
+                continue;
+            }
 
+            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
+            while (keyIterator.hasNext()) {
+                SelectionKey key = keyIterator.next();
+                if (key.isReadable()) {
+                    this.read(key);
+                } else if (key.isAcceptable()) {
+                    this.accept(key);
+                }
+                keyIterator.remove();
+            }
+        }
     }
 
     /**
@@ -44,6 +66,10 @@ public class CommandExecutionServer implements AutoCloseable {
      * @throws IOException In case of problems with the accept
      */
     private void accept(SelectionKey key) throws IOException {
+        ServerSocketChannel channel = (ServerSocketChannel) key.channel();
+        SocketChannel schannel = channel.accept();
+        schannel.configureBlocking(false);
+        schannel.register(selector, SelectionKey.OP_READ);
 
     }
 
@@ -52,8 +78,18 @@ public class CommandExecutionServer implements AutoCloseable {
      *
      * @param key The key for which data was received
      */
-    private void read(SelectionKey key) {
-
+    private void read(SelectionKey key) throws IOException {
+        SocketChannel sc = (SocketChannel) key.channel();
+        commandBuffer.clear();
+        int r = sc.read(commandBuffer);
+        if (r <= 0) {
+            return;
+        }
+        String command = Charset.forName("UTF-8").decode(commandBuffer).toString();
+        commandBuffer.flip();
+        commandBuffer.clear();
+        commandBuffer.put(executeCommand(command).getBytes());
+        sc.write(commandBuffer);
     }
 
     /**
